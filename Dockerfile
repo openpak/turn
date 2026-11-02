@@ -1,0 +1,33 @@
+# coturn with two interoperability patches for Nintendo's Pia TURN client.
+#
+# Pia writes its method attributes AFTER MESSAGE-INTEGRITY: an ALLOCATE is USERNAME, REALM,
+# NONCE, MESSAGE-INTEGRITY, then REQUESTED-TRANSPORT; a CHANNEL-BIND is the same four, then
+# CHANNEL-NUMBER and XOR-PEER-ADDRESS (measured on the prod box, 2026-10-11, Terraria between a
+# Switch and Harbor). coturn ignores everything after MESSAGE-INTEGRITY since 176ce42 (RFC 8489
+# §9), so every Pia CHANNEL-BIND got 400 and no TURN relay ever formed; peers that cannot reach
+# each other directly time out (Terraria joiner gives up, the host shows 2318-1500).
+#
+# 1. The request handlers read attributes past MESSAGE-INTEGRITY again (stun_attr_get_next_str).
+#    The authentication attributes (USERNAME, REALM, NONCE) are still looked up only before it,
+#    in check_stun_auth, so credentials stay integrity-covered.
+# 2. ALLOCATE with no REQUESTED-TRANSPORT defaults to UDP (17). Kept from the first patch: with
+#    patch 1 the attribute is read, so this is only a fallback.
+#
+# Pinned to the coturn commit the box ran from 2026-09-05 so a rebuild changes only these patches.
+# Builds from source, so it is arch-neutral (arm64 on OCI Ampere works as-is).
+FROM debian:bookworm-slim AS build
+ARG COTURN_COMMIT=176ce42f56e95942f1fa6500987fe099e093e59a
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates build-essential pkg-config libssl-dev libevent-dev && rm -rf /var/lib/apt/lists/*
+RUN git init -q /src && cd /src && git fetch -q --depth 1 https://github.com/coturn/coturn.git "$COTURN_COMMIT" && git checkout -q FETCH_HEAD
+RUN sed -i 's|^    if (!transport) {$|    if (!transport) { transport = 17; } if (0) {|' /src/src/server/ns_turn_server.c \
+ && grep -n 'transport = 17' /src/src/server/ns_turn_server.c \
+ && sed -i 's|stun_attr_get_next_covered_str(|stun_attr_get_next_str(|g' /src/src/server/ns_turn_server.c \
+ && ! grep -n 'stun_attr_get_next_covered_str(' /src/src/server/ns_turn_server.c \
+ && grep -c 'stun_attr_get_first_covered_by_type_str(' /src/src/server/ns_turn_server.c \
+ && cd /src && ./configure --prefix=/usr/local >/dev/null && make -j"$(nproc)" >/dev/null && make install >/dev/null
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends libssl3 libevent-2.1-7 libevent-core-2.1-7 libevent-extra-2.1-7 libevent-openssl-2.1-7 libevent-pthreads-2.1-7 && rm -rf /var/lib/apt/lists/*
+COPY --from=build /usr/local/bin/turnserver /usr/local/bin/turnserver
+COPY --from=build /usr/local/lib/ /usr/local/lib/
+ENV LD_LIBRARY_PATH=/usr/local/lib
+ENTRYPOINT ["/usr/local/bin/turnserver"]

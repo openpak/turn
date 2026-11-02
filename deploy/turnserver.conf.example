@@ -1,0 +1,13 @@
+# OpenPak TURN (coturn with the Pia patches). Mount at /etc/turnserver.conf.
+# Secret = NPLN_TURN_SECRET in deploy/.env; connectivity signs TURN credentials with the same value.
+no-tls
+no-dtls
+listening-port=3478
+use-auth-secret
+static-auth-secret=CHANGE_ME
+realm=openpak.org
+fingerprint
+external-ip=<public ip>
+min-port=49152
+max-port=65535
+log-file=stdout

@@ -1,0 +1,12 @@
+[Unit]
+Description=OpenPak STUN/TURN (coturn with the Pia ALLOCATE patch) for NPLN titles
+[Container]
+Volume=%h/openpak/deploy/turn/turnserver.conf:/etc/turnserver.conf:ro,U
+ContainerName=openpak-turn
+Image=localhost/oci_turn:latest
+Network=host
+Exec=-c /etc/turnserver.conf
+[Service]
+Restart=always
+[Install]
+WantedBy=default.target
